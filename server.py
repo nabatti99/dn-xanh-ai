@@ -1,54 +1,38 @@
-import torch
+from typing import *
+import io
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
-from torchvision.transforms import v2
-from typing import List
+import logging
 from PIL import Image
-import io
-from model import WasteClassificationModel
+from model import check_can_classification, classify_image
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
-device = torch.device("cpu")
-model = WasteClassificationModel()
-model.load_state_dict(
-    torch.load("train_loss_best_cpu.pt", map_location=device, weights_only=True)
-)
-model.eval()
-
-class_names = open("class_names.txt").read().splitlines()
-
-pil_transform = v2.Compose(
-    [
-        v2.Resize(size=(256, 256)),
-        v2.PILToTensor(),
-        v2.ToDtype(torch.float32),
-        v2.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
-    ]
-)
-
-
-def read_transform(file) -> Image.Image:
-    image = Image.open(io.BytesIO(file)).convert("RGB")
-    image = pil_transform(image)
-    return image
 
 
 @app.post("/predict")
 async def predict(files: List[UploadFile] = File(...)):
     try:
-        print(len(files))
-        tensors = [read_transform(await file.read()) for file in files]
-        input_batch: torch.Tensor = torch.stack(tensors)
+        image_contents = [(await file.read()) for file in files]
+        images = [Image.open(io.BytesIO(content)) for content in image_contents]
 
-        outputs = model(input_batch)
+        should_classifications = check_can_classification(images)
+        if not any(should_classifications):
+            return JSONResponse(content={"should_classification": False})
 
-        _, predictionIds = torch.max(outputs, 1)
-        predictions = [class_names[id] for id in predictionIds]
+        predictions = classify_image(images)
+        return JSONResponse(
+            content={
+                "should_classification": True,
+                "predictions": predictions,
+            }
+        )
 
-        return JSONResponse(content={"predictions": predictions})
     except Exception as e:
+        logger.error(f"Error processing images: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
