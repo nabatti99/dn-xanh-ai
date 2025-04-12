@@ -19,9 +19,9 @@ async def predict(files: List[UploadFile] = File(...)):
         image_contents = [(await file.read()) for file in files]
         images = [Image.open(io.BytesIO(content)) for content in image_contents]
 
-        should_classifications = check_can_classification(images)
-        if not any(should_classifications):
-            return JSONResponse(content={"should_classification": False})
+        # should_classifications = check_can_classification(images)
+        # if not any(should_classifications):
+        #     return JSONResponse(content={"should_classification": False})
 
         predictions = classify_image(images)
         return JSONResponse(
